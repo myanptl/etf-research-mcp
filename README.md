@@ -1,5 +1,9 @@
 # etf-research-mcp
 
+[![npm version](https://img.shields.io/npm/v/etf-research-mcp)](https://www.npmjs.com/package/etf-research-mcp)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
+[![node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+
 MCP server for real-time ETF research. Gives Claude tools to look up quotes, holdings, expense ratios, and fund comparisons using Yahoo Finance — no API key required.
 
 ## Tools
@@ -14,10 +18,35 @@ MCP server for real-time ETF research. Gives Claude tools to look up quotes, hol
 | `get_etf_performance` | Historical price data over 1m / 3m / 6m / 1y / 3y / 5y |
 | `get_similar_etfs` | Find alternative ETFs similar to a given ticker |
 
-## Install in Claude Code
+## Install
+
+### Claude Code
 
 ```bash
 claude mcp add etf-research --scope user -- npx -y etf-research-mcp
+```
+
+### Claude Desktop
+
+Add to `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "etf-research": {
+      "command": "npx",
+      "args": ["-y", "etf-research-mcp"]
+    }
+  }
+}
+```
+
+### Any MCP client
+
+The server speaks MCP over stdio, so any client that can launch a command works:
+
+```bash
+npx -y etf-research-mcp
 ```
 
 ## Example prompts
@@ -34,7 +63,24 @@ claude mcp add etf-research --scope user -- npx -y etf-research-mcp
 
 ## No API key required
 
-Data comes from Yahoo Finance via [yahoo-finance2](https://github.com/gadicc/yahoo-finance2). No sign-up, no key.
+Data comes from Yahoo Finance via [yahoo-finance2](https://github.com/gadicc/yahoo-finance2). No sign-up, no key. Quotes are near-real-time; fundamentals update on Yahoo's schedule.
+
+## Development
+
+```bash
+git clone https://github.com/myanptl/etf-research-mcp
+cd etf-research-mcp
+npm install
+npm run build     # compile TypeScript to dist/
+npm start         # run the stdio server
+npm run dev       # recompile on change
+```
+
+Test against a local build in Claude Code:
+
+```bash
+claude mcp add etf-research-dev -- node /path/to/etf-research-mcp/dist/index.js
+```
 
 ## Built with
 
@@ -42,6 +88,10 @@ Data comes from Yahoo Finance via [yahoo-finance2](https://github.com/gadicc/yah
 - [yahoo-finance2](https://github.com/gadicc/yahoo-finance2)
 - TypeScript + Node 18+
 
-## Author
+## Disclaimer
 
-Myan Patel — [GitHub](https://github.com/myanptl)
+Market data is provided for research and education. Not investment advice.
+
+## License
+
+MIT © [Myan Patel](https://github.com/myanptl)
