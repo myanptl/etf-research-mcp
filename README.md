@@ -1,6 +1,7 @@
 # etf-research-mcp
 
 [![npm version](https://img.shields.io/npm/v/etf-research-mcp)](https://www.npmjs.com/package/etf-research-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/etf-research-mcp)](https://www.npmjs.com/package/etf-research-mcp)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
 [![node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 
