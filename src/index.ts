@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { pathToFileURL } from "node:url";
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -143,21 +145,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 type LooseRecord = Record<string, unknown>;
 
-function get<T>(obj: unknown, key: string): T | undefined {
+export function get<T>(obj: unknown, key: string): T | undefined {
   return (obj as LooseRecord)?.[key] as T | undefined;
 }
 
-function pct(value: number | null | undefined): string {
+export function pct(value: number | null | undefined): string {
   if (value == null) return "N/A";
   return `${(value * 100).toFixed(2)}%`;
 }
 
-function currency(value: number | null | undefined, decimals = 2): string {
+export function currency(value: number | null | undefined, decimals = 2): string {
   if (value == null) return "N/A";
   return `$${value.toFixed(decimals)}`;
 }
 
-function formatAum(value: number | null | undefined): string {
+export function formatAum(value: number | null | undefined): string {
   if (value == null) return "N/A";
   if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
   if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
@@ -165,9 +167,12 @@ function formatAum(value: number | null | undefined): string {
   return `$${value.toLocaleString()}`;
 }
 
-function periodToDate(period: string): Date {
+export const PERIODS = ["1m", "3m", "6m", "1y", "3y", "5y"] as const;
+export type Period = (typeof PERIODS)[number];
+
+export function periodToDate(period: string): Date {
   const d = new Date();
-  const offsets: Record<string, () => void> = {
+  const offsets: Record<Period, () => void> = {
     "1m": () => d.setMonth(d.getMonth() - 1),
     "3m": () => d.setMonth(d.getMonth() - 3),
     "6m": () => d.setMonth(d.getMonth() - 6),
@@ -175,7 +180,18 @@ function periodToDate(period: string): Date {
     "3y": () => d.setFullYear(d.getFullYear() - 3),
     "5y": () => d.setFullYear(d.getFullYear() - 5),
   };
-  offsets[period]?.();
+  const offset = offsets[period as Period];
+  if (!offset) {
+    // The tool schema declares an enum, but MCP does not enforce schemas at
+    // runtime, so an unknown period reaches this function. It used to fall
+    // through and return TODAY, which silently produced a zero-length range and
+    // an empty performance report instead of an error.
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Unsupported period "${period}". Use one of: ${PERIODS.join(", ")}.`
+    );
+  }
+  offset();
   return d;
 }
 
@@ -511,7 +527,15 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch((err) => {
-  process.stderr.write(`Fatal: ${err}\n`);
-  process.exit(1);
-});
+// Only start the server when run as the binary. Importing this module (tests, or
+// anything reusing the helpers) must not connect a stdio transport as a side effect.
+const isMain =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main().catch((err) => {
+    process.stderr.write(`Fatal: ${err}\n`);
+    process.exit(1);
+  });
+}
