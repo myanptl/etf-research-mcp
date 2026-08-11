@@ -5,3 +5,6 @@ dist/
 .DS_Store
 npm-debug.log*
 .claude-flow/
+
+# graphify analysis output (generated, not source)
+graphify-out/
