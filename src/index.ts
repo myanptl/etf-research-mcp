@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -14,8 +15,15 @@ import YahooFinance from "yahoo-finance2";
 // Must use `new YahooFinance()` — calling methods on the default export directly is deprecated.
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
+// Read the version from package.json so it can never drift from the published
+// package the way a hardcoded literal did (served 1.0.0 while npm was on 1.1.2).
+const { version: PKG_VERSION } = createRequire(import.meta.url)(
+  "../package.json"
+) as { version: string };
+export const SERVER_VERSION = PKG_VERSION;
+
 const server = new Server(
-  { name: "etf-research-mcp", version: "1.0.0" },
+  { name: "etf-research-mcp", version: PKG_VERSION },
   { capabilities: { tools: {} } }
 );
 
@@ -98,10 +106,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           period: {
             type: "string",
             enum: ["1m", "3m", "6m", "1y", "3y", "5y"],
-            description: "Time period for performance data",
+            description: "Time period for performance data. Defaults to 1y.",
           },
         },
-        required: ["symbol", "period"],
+        required: ["symbol"],
       },
     },
     {
@@ -169,6 +177,7 @@ export function formatAum(value: number | null | undefined): string {
 
 export const PERIODS = ["1m", "3m", "6m", "1y", "3y", "5y"] as const;
 export type Period = (typeof PERIODS)[number];
+export const DEFAULT_PERIOD: Period = "1y";
 
 export function periodToDate(period: string): Date {
   const d = new Date();
@@ -221,7 +230,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `**52-Week Range:** ${currency(get<number>(q, "fiftyTwoWeekLow"))} – ${currency(get<number>(q, "fiftyTwoWeekHigh"))}`,
           `**Volume:** ${(get<number>(q, "regularMarketVolume") ?? 0).toLocaleString() || "N/A"}`,
           `**Avg Volume (3m):** ${(get<number>(q, "averageDailyVolume3Month") ?? 0).toLocaleString() || "N/A"}`,
-          `**Market Cap / AUM:** ${formatAum(get<number>(q, "marketCap"))}`,
+          `**AUM (Net Assets):** ${formatAum(get<number>(q, "netAssets") ?? get<number>(q, "marketCap"))}`,
           `**50-Day MA:** ${currency(get<number>(q, "fiftyDayAverage"))}`,
           `**200-Day MA:** ${currency(get<number>(q, "twoHundredDayAverage"))}`,
           `**YTD Return:** ${get<number>(q, "ytdReturn") != null ? `${get<number>(q, "ytdReturn")!.toFixed(2)}%` : "N/A"}`,
@@ -250,8 +259,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `**Expense Ratio:** ${pct(get<number>(fei, "annualReportExpenseRatio"))}`,
           `**AUM:** ${formatAum(get<number>(ks, "totalAssets"))}`,
           `**NAV:** ${currency(get<number>(sd, "navPrice"))}`,
-          `**Beta (5Y Monthly):** ${get<number>(ks, "beta")?.toFixed(2) ?? "N/A"}`,
-          `**Dividend Yield:** ${pct(get<number>(sd, "dividendYield"))}`,
+          `**Beta (3Y):** ${(get<number>(ks, "beta3Year") ?? get<number>(ks, "beta"))?.toFixed(2) ?? "N/A"}`,
+          `**Dividend Yield:** ${pct(get<number>(sd, "dividendYield") ?? get<number>(sd, "yield"))}`,
           `**52-Week High:** ${currency(get<number>(sd, "fiftyTwoWeekHigh"))}`,
           `**52-Week Low:** ${currency(get<number>(sd, "fiftyTwoWeekLow"))}`,
         ];
@@ -344,7 +353,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ),
           row("Category", ({ fp }) => get<string>(fp, "categoryName") ?? "N/A"),
           row("Fund Family", ({ fp }) => get<string>(fp, "family") ?? "N/A"),
-          row("Beta (5Y)", ({ ks }) => get<number>(ks, "beta")?.toFixed(2) ?? "N/A"),
+          row(
+            "Beta (3Y)",
+            ({ ks }) =>
+              (get<number>(ks, "beta3Year") ?? get<number>(ks, "beta"))?.toFixed(
+                2
+              ) ?? "N/A"
+          ),
           row("52W High", ({ q }) => currency(get<number>(q, "fiftyTwoWeekHigh"))),
           row("52W Low", ({ q }) => currency(get<number>(q, "fiftyTwoWeekLow"))),
         ].join("\n");
@@ -354,7 +369,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── get_etf_performance ───────────────────────────────────────────────
       case "get_etf_performance": {
-        const { symbol, period } = args as { symbol: string; period: string };
+        const { symbol, period = DEFAULT_PERIOD } = args as {
+          symbol: string;
+          period?: string;
+        };
         const sym = symbol.toUpperCase();
 
         const intervalMap: Record<string, "1d" | "1wk" | "1mo"> = {
@@ -366,10 +384,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "5y": "1mo",
         };
 
-        const historical = await yf.historical(sym, {
+        // Yahoo removed the endpoint behind historical(); yahoo-finance2 now
+        // rejects the call outright, which left this tool dead for every
+        // period. chart() is the supported replacement.
+        const { quotes } = await yf.chart(sym, {
           period1: periodToDate(period),
           interval: intervalMap[period] ?? "1mo",
         });
+
+        // chart() emits an in-progress candle with null OHLC; those rows turn
+        // the min/max and return math into NaN, so drop them.
+        const historical = quotes.filter(
+          (q): q is typeof q & { close: number; high: number; low: number } =>
+            q.close != null && q.high != null && q.low != null
+        );
 
         if (!historical.length) {
           return {
@@ -416,11 +444,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "search_etfs": {
         const { query, limit = 10 } = args as { query: string; limit?: number };
         const cap = Math.min(limit, 20);
-        const result = (await yf.search(query)) as LooseRecord;
+
+        // Yahoo's search ranks mutual funds and futures above ETFs for plain
+        // theme words, so a bare "growth" came back with a single obscure ETF
+        // and none of VUG/SCHG/MGK. Biasing the query toward ETFs and asking
+        // for a wider result set fixes the recall.
+        const biased = /\betfs?\b/i.test(query) ? query : `${query} ETF`;
+        const result = (await yf.search(biased, {
+          quotesCount: 30,
+        })) as LooseRecord;
 
         const quotes = get<LooseRecord[]>(result, "quotes") ?? [];
         const etfs = quotes
-          .filter((q) => get<string>(q, "quoteType") === "ETF")
+          .filter((q) => q && get<string>(q, "quoteType") === "ETF")
+          // A US-listed ticker carries no exchange suffix. Foreign cross-listings
+          // (GWTH.AX, 2638.T, ...) are rarely what the caller wants, so rank them last.
+          .sort((a, b) => {
+            const foreign = (q: LooseRecord) =>
+              (get<string>(q, "symbol") ?? "").includes(".") ? 1 : 0;
+            return foreign(a) - foreign(b);
+          })
           .slice(0, cap);
 
         if (!etfs.length) {

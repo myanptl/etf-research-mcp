@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
-import { PERIODS, currency, formatAum, get, pct, periodToDate } from "../src/index.js";
+import {
+  DEFAULT_PERIOD,
+  PERIODS,
+  currency,
+  formatAum,
+  get,
+  pct,
+  periodToDate,
+} from "../src/index.js";
 
 describe("pct", () => {
   it("formats a rate as a percentage", () => {
@@ -74,5 +82,37 @@ describe("get", () => {
   it("survives null/undefined input rather than throwing", () => {
     expect(get<number>(null, "a")).toBeUndefined();
     expect(get<number>(undefined, "a")).toBeUndefined();
+  });
+});
+
+describe("DEFAULT_PERIOD", () => {
+  it("is a member of the advertised period enum", () => {
+    expect(PERIODS).toContain(DEFAULT_PERIOD);
+  });
+
+  it("resolves to a real past date", () => {
+    // get_etf_performance used to hard-fail with `Unsupported period
+    // "undefined"` whenever a caller omitted the optional period, which is the
+    // common case for an LLM asking "how has IJR done?". The handler now falls
+    // back to DEFAULT_PERIOD, so that fallback has to be a valid period.
+    const d = periodToDate(DEFAULT_PERIOD);
+    expect(d.getTime()).toBeLessThan(Date.now());
+    expect(Number.isNaN(d.getTime())).toBe(false);
+  });
+
+  it("still rejects a genuinely invalid period", () => {
+    // Defaulting must not swallow a real mistake such as "99y".
+    expect(() => periodToDate("99y")).toThrow(McpError);
+  });
+});
+
+describe("server version", () => {
+  it("matches the published package version", async () => {
+    // The server advertised a hardcoded "1.0.0" while npm served 1.1.2.
+    const { createRequire } = await import("node:module");
+    const require = createRequire(import.meta.url);
+    const pkg = require("../package.json") as { version: string };
+    const { SERVER_VERSION } = await import("../src/index.js");
+    expect(SERVER_VERSION).toBe(pkg.version);
   });
 });

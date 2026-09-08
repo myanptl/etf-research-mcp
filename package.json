@@ -1,6 +1,6 @@
 {
   "name": "etf-research-mcp",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "MCP server for real-time ETF research — quotes, holdings, expense ratios, and fund comparisons via Yahoo Finance",
   "keywords": [
     "mcp",
