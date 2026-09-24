@@ -19,11 +19,11 @@
   "homepage": "https://github.com/myanptl/etf-research-mcp#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/myanptl/etf-research-mcp.git"
+    "url": "git+https://github.com/myanptl/etf-research-mcp.git"
   },
   "type": "module",
   "bin": {
-    "etf-research-mcp": "./dist/index.js"
+    "etf-research-mcp": "dist/index.js"
   },
   "files": [
     "dist"
