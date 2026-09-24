@@ -9,6 +9,8 @@ import {
   get,
   pct,
   periodToDate,
+  returns,
+  sampleBars,
 } from "../src/index.js";
 
 describe("pct", () => {
@@ -114,5 +116,37 @@ describe("server version", () => {
     const pkg = require("../package.json") as { version: string };
     const { SERVER_VERSION } = await import("../src/index.js");
     expect(SERVER_VERSION).toBe(pkg.version);
+  });
+});
+
+describe("returns", () => {
+  const bar = (d: string, close: number, adjclose?: number) => ({ date: new Date(d), close, high: close, low: close, adjclose });
+
+  it("reports price return, and total return from adjusted closes", () => {
+    const r = returns([bar("2025-09-23", 100, 90), bar("2026-09-23", 110, 103.5)]);
+    expect(r.price).toBeCloseTo(10);
+    expect(r.total).toBeCloseTo(15);
+  });
+
+  it("omits total return when Yahoo sends no adjusted close", () => {
+    expect(returns([bar("2025-09-23", 100), bar("2026-09-23", 120)])).toEqual({ price: 20 });
+  });
+});
+
+describe("sampleBars", () => {
+  const bar = (d: string) => ({ date: new Date(`${d}T00:00:00Z`), close: 1, high: 1, low: 1 });
+  const days = ["2026-08-28", "2026-08-31", "2026-09-01", "2026-09-04", "2026-09-08"].map(bar);
+
+  it("keeps the last bar of each month", () => {
+    expect(sampleBars(days, "1mo").map((b) => b.date.toISOString().slice(0, 10))).toEqual(["2026-08-31", "2026-09-08"]);
+  });
+
+  it("keeps the last bar of each ISO week", () => {
+    // Aug 31 to Sep 4 is one Monday-to-Friday week.
+    expect(sampleBars(days, "1wk").map((b) => b.date.toISOString().slice(0, 10))).toEqual(["2026-08-28", "2026-09-04", "2026-09-08"]);
+  });
+
+  it("returns daily bars untouched", () => {
+    expect(sampleBars(days, "1d")).toHaveLength(5);
   });
 });

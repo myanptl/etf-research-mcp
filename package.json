@@ -1,14 +1,18 @@
 {
   "name": "etf-research-mcp",
-  "version": "1.2.0",
-  "description": "MCP server for real-time ETF research — quotes, holdings, expense ratios, and fund comparisons via Yahoo Finance",
+  "version": "1.3.0",
+  "description": "MCP server for ETF research: quotes, performance with dividends, fund comparisons, and every holding from SEC N-PORT filings, including overlap between funds",
   "keywords": [
     "mcp",
     "etf",
     "finance",
     "yahoo-finance",
     "investing",
-    "model-context-protocol"
+    "model-context-protocol",
+    "sec-edgar",
+    "n-port",
+    "etf-holdings",
+    "portfolio-overlap"
   ],
   "author": "Myan Patel",
   "license": "MIT",
@@ -28,19 +32,20 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build && npm test",
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "yahoo-finance2": "^3.15.4"
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
+    "@types/node": "^22.20.4",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },
   "engines": {
-    "node": ">=18"
-  }
+    "node": ">=22"
+  },
+  "mcpName": "io.github.myanptl/etf-research-mcp"
 }

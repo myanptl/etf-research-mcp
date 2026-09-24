@@ -12,6 +12,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import YahooFinance from "yahoo-finance2";
 
+import { SEC_TOOLS, handleSecTool } from "./secTools.js";
+
 // Must use `new YahooFinance()` — calling methods on the default export directly is deprecated.
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
@@ -64,7 +66,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_etf_holdings",
       description:
-        "Get the top holdings of an ETF with their portfolio weight percentages.",
+        "Get the top 10 holdings of an ETF with their portfolio weights, from Yahoo Finance. For every holding, straight from the fund's SEC filing, use get_etf_full_holdings.",
       inputSchema: {
         type: "object",
         properties: {
@@ -146,6 +148,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["symbol"],
       },
     },
+    ...SEC_TOOLS,
   ],
 }));
 
@@ -204,12 +207,46 @@ export function periodToDate(period: string): Date {
   return d;
 }
 
+export interface Bar {
+  date: Date;
+  close: number;
+  high: number;
+  low: number;
+  adjclose?: number | null;
+}
+
+/** Price return from close, total return from the dividend-adjusted close when Yahoo sends it. */
+export function returns(bars: Bar[]): { price: number; total?: number } {
+  const first = bars[0];
+  const last = bars[bars.length - 1];
+  const price = ((last.close - first.close) / first.close) * 100;
+  if (first.adjclose == null || last.adjclose == null || !first.adjclose) return { price };
+  return { price, total: ((last.adjclose - first.adjclose) / first.adjclose) * 100 };
+}
+
+/** Keep the last bar of each day, ISO week or month, for a readable table. */
+export function sampleBars<T extends Bar>(bars: T[], interval: "1d" | "1wk" | "1mo"): T[] {
+  if (interval === "1d") return bars;
+  const keyOf = (d: Date) => {
+    if (interval === "1mo") return d.toISOString().slice(0, 7);
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return monday.toISOString().slice(0, 10);
+  };
+  const out = new Map<string, T>();
+  for (const b of bars) out.set(keyOf(b.date), b);
+  return [...out.values()];
+}
+
 // ─── Tool Handlers ────────────────────────────────────────────────────────────
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    const secResult = await handleSecTool(name, (args ?? {}) as Record<string, unknown>);
+    if (secResult) return secResult;
+
     switch (name) {
       // ── get_etf_quote ─────────────────────────────────────────────────────
       case "get_etf_quote": {
@@ -289,8 +326,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
+        // Yahoo no longer sends stockConcentration for most funds; the top-10
+        // weight is just the sum of the ten holdings it did send.
         const sc = get<LooseRecord>(th, "stockConcentration");
-        const concentration = get<number>(sc, "tenHoldingsPercentage");
+        const concentration =
+          get<number>(sc, "tenHoldingsPercentage") ??
+          holdings.slice(0, 10).reduce((sum, h) => sum + (get<number>(h, "holdingPercent") ?? 0), 0);
 
         const holdingLines = holdings.map((h, i) => {
           const weight = get<number>(h, "holdingPercent");
@@ -375,7 +416,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
         const sym = symbol.toUpperCase();
 
-        const intervalMap: Record<string, "1d" | "1wk" | "1mo"> = {
+        const displayInterval: Record<string, "1d" | "1wk" | "1mo"> = {
           "1m": "1d",
           "3m": "1wk",
           "6m": "1wk",
@@ -384,12 +425,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "5y": "1mo",
         };
 
-        // Yahoo removed the endpoint behind historical(); yahoo-finance2 now
-        // rejects the call outright, which left this tool dead for every
-        // period. chart() is the supported replacement.
+        // Yahoo removed the endpoint behind historical(); chart() is the
+        // supported replacement. Always fetch DAILY bars: with monthly bars the
+        // first candle is the first whole month, so "1y" silently started
+        // weeks late and the return was measured over the wrong window.
         const { quotes } = await yf.chart(sym, {
           period1: periodToDate(period),
-          interval: intervalMap[period] ?? "1mo",
+          interval: "1d",
         });
 
         // chart() emits an in-progress candle with null OHLC; those rows turn
@@ -409,11 +451,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const first = historical[0];
         const last = historical[historical.length - 1];
-        const totalReturn = ((last.close - first.close) / first.close) * 100;
+        const perf = returns(historical);
         const highPrice = Math.max(...historical.map((d) => d.high));
         const lowPrice = Math.min(...historical.map((d) => d.low));
 
-        const recentRows = historical
+        const recentRows = sampleBars(historical, displayInterval[period] ?? "1mo")
           .slice(-10)
           .reverse()
           .map(
@@ -425,7 +467,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `## ${sym} — ${period.toUpperCase()} Performance`,
           ``,
           `**Period:** ${first.date.toISOString().split("T")[0]} → ${last.date.toISOString().split("T")[0]}`,
-          `**Total Return:** ${totalReturn.toFixed(2)}%`,
+          `**Price Return:** ${perf.price.toFixed(2)}%`,
+          ...(perf.total != null ? [`**Total Return (dividends reinvested):** ${perf.total.toFixed(2)}%`] : []),
           `**Start Price:** ${currency(first.close)}`,
           `**End Price:** ${currency(last.close)}`,
           `**Period High:** ${currency(highPrice)}`,
@@ -556,9 +599,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (err) {
     if (err instanceof McpError) throw err;
     const message = err instanceof Error ? err.message : String(err);
+    const sourceName = name === "get_etf_full_holdings" || name === "get_etf_overlap" ? "SEC EDGAR" : "Yahoo Finance";
     throw new McpError(
       ErrorCode.InternalError,
-      `Yahoo Finance error: ${message}`
+      `${sourceName} error: ${message}`
     );
   }
 });

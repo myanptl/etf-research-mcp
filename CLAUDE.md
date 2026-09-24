@@ -1,11 +1,11 @@
 # etf-research-mcp — Claude Code Config
 
-Published npm MCP server for ETF research (v1.1.1). Exposes ETF quote/holdings/
+Published npm MCP server for ETF research (v1.3.0). Exposes ETF quote/holdings/full SEC holdings/overlap/
 performance/compare tools over the Model Context Protocol.
 
 ## Stack
 - TypeScript (ESM), compiled with `tsc` → `dist/`
-- `@modelcontextprotocol/sdk` (server), `yahoo-finance2` (data source)
+- `@modelcontextprotocol/sdk` (server), `yahoo-finance2` (market data), SEC EDGAR N-PORT (full holdings, `src/sec.ts`)
 - Published to npm as `etf-research-mcp`
 
 ## Layout
