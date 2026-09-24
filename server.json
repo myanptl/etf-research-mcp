@@ -7,12 +7,12 @@
     "url": "https://github.com/myanptl/etf-research-mcp",
     "source": "github"
   },
-  "version": "1.3.0",
+  "version": "1.3.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "etf-research-mcp",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {

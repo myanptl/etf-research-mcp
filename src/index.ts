@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -616,11 +617,19 @@ async function main() {
 
 // Only start the server when run as the binary. Importing this module (tests, or
 // anything reusing the helpers) must not connect a stdio transport as a side effect.
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// npx and npm install run the binary through a symlink in node_modules/.bin,
+// so argv[1] is the link while import.meta.url is the real file. Comparing them
+// directly meant the server never started for anyone who installed it.
+export function isEntrypoint(argv1: string | undefined = process.argv[1]): boolean {
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
 
-if (isMain) {
+if (isEntrypoint()) {
   main().catch((err) => {
     process.stderr.write(`Fatal: ${err}\n`);
     process.exit(1);
